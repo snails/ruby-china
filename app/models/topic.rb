@@ -45,6 +45,7 @@ class Topic
   belongs_to :last_reply_user, class_name: 'User'
   belongs_to :last_reply, class_name: 'Reply'
   has_many :replies, dependent: :destroy
+  has_many :view_histories, dependent: :destroy
 
   validates_presence_of :user_id, :title, :body, :node
 
@@ -160,4 +161,58 @@ class Topic
   def excellent?
     self.excellent >= 1
   end
+
+  def self.get_replies(topics1, topics2, time1, time2)
+    t1_v0 = topics1.view_histories.where(:created_at.gte => time2).where(:created_at.lt => time1).count
+    t2_v0 = topics2.view_histories.where(:created_at.gte => time2).where(:created_at.lt => time1).count
+
+    t1_p0 = topics1.replies.where(:created_at.gte => time2).where(:created_at.lt => time1).count
+    t2_p0 = topics2.replies.where(:created_at.gte => time2).where(:created_at.lt => time1).count
+
+    [t1_v0, t1_p0, t2_v0, t2_p0]
+  end
+
+  #内存中排序
+  def self.week_popular
+    #取出所有符合条件的帖子
+    @topics = Topic.fields_for_list.where(:created_at.gte => 6.days.ago.utc.beginning_of_day).includes(:user, :replies, :view_histories)
+    @topics = @topics.sort do |t1, t2| 
+      day_begin = Time.now.utc.beginning_of_day
+      day_end = Time.now.utc
+      score1, score2 = 0, 0
+      7.downto(2) do |index|
+        t1_v0, t1_p0, t2_v0, t2_p0 = get_replies(t1, t2, day_end, day_begin)
+        score1 += (t1_v0 + t1_p0 * 3) * index
+        day_begin, day_end = day_begin - 1.day, day_begin
+      end
+      t1_v6, t1_p6, t2_v6, t2_p6 = get_replies(t1, t2, day_end, day_begin)
+
+      score1 += (t1_v6 + t1_p6)
+      score2 += (t2_v6 + t2_p6)
+
+      score2 <=> score1
+    end
+    @topics[0...100]
+  end
+
+  def self.diary_popular
+    hour_now = Time.now.utc.beginning_of_hour 
+    @topics = Topic.fields_for_list.where(:created_at.gte => (hour_now - 1.days)).includes(:user, :replies, :view_histories)
+    time1, time2 = Time.now.utc, hour_now
+    @topics = @topics.sort do |t1, t2|
+      score1, score2 = 0, 0
+      24.downto(2) do |index|
+        t1_v0, t1_p0, t2_v0, t2_p0 = get_replies(t1, t2, time1, time2)
+        score1 += (t1_v0 + t1_p0 * 3) * index
+        score2 += (t2_v0 + t2_p0 * 3) * index
+        time1, time2 = time2, time2 - 1.hour
+      end
+      t1_v0, t1_p0, t2_v0, t2_p0 = get_replies(t1, t2, time1, time2)
+      score1 += (t1_v0 + t1_p0) * index
+      score2 += (t2_v0 + t2_p0) * index
+      score2 <=> score1
+    end
+    @topics[0...100]
+  end
+
 end

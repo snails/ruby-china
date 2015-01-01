@@ -19,5 +19,13 @@ describe SitesController, :type => :routing do
       expect(post("/sites")).to route_to("sites#create")
     end
 
+    it "routes to topics#week_popular" do
+      expect(get("/topics/week_popular")).to route_to("topics#week_popular")
+    end
+
+    it "routes to topics#diary_popular" do
+      expect(get("/topics/diary_popular")).to route_to("topics#diary_popular")
+    end
+
   end
 end

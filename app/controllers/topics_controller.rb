@@ -1,8 +1,10 @@
 # coding: utf-8
+require 'will_paginate/array'
 class TopicsController < ApplicationController
   load_and_authorize_resource only: [:new, :edit, :create, :update, :destroy,
                                      :favorite, :unfavorite, :follow, :unfollow, :suggest, :unsuggest]
-  caches_action :feed, :node_feed, expires_in: 1.hours
+  caches_action :feed, :node_feed, :week_popular, expires_in: 1.hours
+  caches_action :diary_popular, expires_in: 10.minutes
 
   def index
     @suggest_topics = Topic.without_hide_nodes.suggest.limit(3)
@@ -45,6 +47,22 @@ class TopicsController < ApplicationController
     end
   end
 
+  def week_popular
+    @topics = Topic.week_popular
+    @topics = @topics.paginate(page: params[:page], per_page: 15, total_entries: 100)
+
+    set_seo_meta [t("topics.topic_list.week_popular"), t('menu.topics')].join(' &raquo; ')
+    render action: 'index'
+  end
+
+  def diary_popular
+    @topics = Topic.diary_popular
+    @topics = @topics.paginate(page: params[:page], per_page: 15, total_entries: 100)
+
+    set_seo_meta [t("topics.topic_list.diary_popular"), t('menu.topics')].join(' &raquo; ')
+    render action: 'index'
+  end
+
   def recent
     @topics = Topic.recent.fields_for_list.includes(:user)
     @topics = @topics.paginate(page: params[:page], per_page: 15, total_entries: 1500)
@@ -63,6 +81,9 @@ class TopicsController < ApplicationController
   def show
     @topic = Topic.without_body.find(params[:id])
     @topic.hits.incr(1)
+    user_id = current_user.try(:_id) || -1
+    view_history = @topic.view_histories.build(user_id: user_id)
+    view_history.save
     @node = @topic.node
     @show_raw = params[:raw] == '1'
 

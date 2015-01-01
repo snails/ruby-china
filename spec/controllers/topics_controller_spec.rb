@@ -153,4 +153,19 @@ describe TopicsController, :type => :controller do
       end
     end
   end
+
+  describe ":week_popular" do
+    it "should have a week_popular action" do
+      get :week_popular
+      expect(response).to be_success
+    end
+  end
+
+  describe ":diary_popular" do
+    it "should have a diary_popular action" do
+      get :diary_popular
+      expect(response).to be_success
+    end
+  end
+
 end

@@ -42,6 +42,8 @@ Rails.application.routes.draw do
   get "topics/node:id" => "topics#node", as: 'node_topics'
   get "topics/node:id/feed" => "topics#node_feed", as: 'feed_node_topics', defaults: { format: 'xml' }
   get "topics/last" => "topics#recent", as: 'recent_topics'
+  get "topics/week_popular" => "topics#week_popular", as: 'week_popular_topics'
+  get "topics/diary_popular" => "topics#diary_popular", as: 'diary_popular_topics'
   resources :topics do
     member do
       post :reply

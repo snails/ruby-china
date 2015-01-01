@@ -97,4 +97,5 @@ class Reply
     notifications.delete_all
     delete_notifiaction_mentions
   end
+
 end
