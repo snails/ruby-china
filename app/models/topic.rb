@@ -173,49 +173,91 @@ class Topic
     [t1_v0, t1_p0, t2_v0, t2_p0]
   end
 
+  def self.caculate_diary_score(topic)
+    score = 0
+    end_time = Time.now.utc.end_of_hour
+    begin_time = end_time.beginning_of_hour
+
+    24.downto(1) do |index|
+      vh = topic.view_histories.where(:created_at.gte => begin_time).where(:created_at.lt => end_time).count
+      rp = topic.replies.where(:created_at.gte => begin_time).where(:created_at.lt => end_time).count
+      if index > 1
+        score += (vh + 3 * rp) * index
+      else
+        score += (vh + rp)
+      end 
+      begin_time, end_time = begin_time - 1.day, begin_time
+    end
+
+    score
+  end
+
+  def self.caculate_week_score(topic)
+    score = 0
+    end_date = Time.now.utc.end_of_day
+    begin_date = end_date.beginning_of_day
+    7.downto(1) do |index|
+      vh = topic.view_histories.where(:created_at.gte => begin_date).where(:created_at.lt => end_date).count
+      rp = topic.replies.where(:created_at.gte => begin_date).where(:created_at.lt => end_date).count
+      if index > 1
+      score += (vh + 3 * rp) * index
+      else
+        score += (vh + rp)
+      end 
+      begin_date, end_date = begin_date - 1.day, begin_date
+    end
+
+    score
+  end
+
   #内存中排序
   def self.week_popular
-    #取出所有符合条件的帖子
-    @topics = Topic.fields_for_list.where(:created_at.gte => 6.days.ago.utc.beginning_of_day).includes(:user, :replies, :view_histories)
-    @topics = @topics.sort do |t1, t2| 
-      day_begin = Time.now.utc.beginning_of_day
-      day_end = Time.now.utc
-      score1, score2 = 0, 0
-      7.downto(2) do |index|
-        t1_v0, t1_p0, t2_v0, t2_p0 = get_replies(t1, t2, day_end, day_begin)
-        score1 += (t1_v0 + t1_p0 * 3) * index
-        score2 += (t2_v0 + t2_p0 * 3) * index
-        day_begin, day_end = day_begin - 1.day, day_begin
-      end
-      t1_v6, t1_p6, t2_v6, t2_p6 = get_replies(t1, t2, day_end, day_begin)
-
-      score1 += (t1_v6 + t1_p6)
-      score2 += (t2_v6 + t2_p6)
-
-      score2 <=> score1
+     @list = Redis::List.new('week_popular', :marshal => true)
+    #首先将链表进行清空
+     @list.clear
+    #其次重建week_list:topic topic:id week_score
+    @begin_date = 6.days.ago.utc.beginning_of_day
+    @topics = Topic.fields_for_list.where(:created_at.gte => @begin_date).includes(:user)
+    @topics.each do |topic|
+      score = caculate_week_score(topic)
+      @list << { topic: topic, score: score }
     end
-    @topics[0...100]
+    # 从链表中取出排序后的数据
+    result = @list.sort_by do |x|
+      -x[:score]
+    end[0...100]
+    # 取出所有符合条件的帖子
+    @topics = [] 
+    result.each do |result|
+      @topics << result[:topic]
+    end
+    @topics
   end
 
   def self.diary_popular
-    hour_now = Time.now.utc.beginning_of_hour 
-    @topics = Topic.fields_for_list.where(:created_at.gte => (hour_now - 1.day)).includes(:user, :replies, :view_histories)
-    @topics = @topics.sort do |t1, t2|
-      score1, score2 = 0, 0
-      time1, time2 = Time.now.utc, hour_now
-      24.downto(2) do |index|
-        t1_v0, t1_p0, t2_v0, t2_p0 = get_replies(t1, t2, time1, time2)
-        score1 += (t1_v0 + t1_p0 * 3) * index
-        score2 += (t2_v0 + t2_p0 * 3) * index
-        time1, time2 = time2, time2 - 1.hour
-      end
-      t1_v0, t1_p0, t2_v0, t2_p0 = get_replies(t1, t2, time1, time2)
-      score1 += (t1_v0 + t1_p0) 
-      score2 += (t2_v0 + t2_p0)
-
-      score2 <=> score1
+    @list = Redis::List.new('diary_popular', :marshal => true)
+    #首先将链表进行清空
+     @list.clear
+    #其次重建week_list:topic topic:id week_score
+    begin_time = 1.day.ago.utc.beginning_of_hour
+    @topics = Topic.fields_for_list.where(:created_at.gte => begin_time).includes(:user)
+    @topics.each do |topic|
+      score = caculate_diary_score(topic)
+      @list << { topic: topic, score: score }
     end
-    @topics[0...100]
+
+    # 从链表中取出排序后的数据
+    result = @list.sort_by do |x|
+      -x[:score]
+    end[0...100]
+
+    # 取出所有符合条件的帖子
+    @topics = [] 
+    result.each do |result|
+      @topics << result[:topic]
+    end
+
+    @topics
   end
 
 end

@@ -49,7 +49,7 @@ class TopicsController < ApplicationController
 
   def week_popular
     @topics = Topic.week_popular
-    @topics = @topics.paginate(page: params[:page], per_page: 15, total_entries: 100)
+    @topics = @topics.paginate(page: params[:page], per_page: 100, total_entries: 100)
 
     set_seo_meta [t("topics.topic_list.week_popular"), t('menu.topics')].join(' &raquo; ')
     render action: 'index'
@@ -57,7 +57,7 @@ class TopicsController < ApplicationController
 
   def diary_popular
     @topics = Topic.diary_popular
-    @topics = @topics.paginate(page: params[:page], per_page: 15, total_entries: 100)
+    @topics = @topics.paginate(page: params[:page], per_page: 100, total_entries: 100)
 
     set_seo_meta [t("topics.topic_list.diary_popular"), t('menu.topics')].join(' &raquo; ')
     render action: 'index'
