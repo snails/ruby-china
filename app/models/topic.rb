@@ -183,6 +183,7 @@ class Topic
       7.downto(2) do |index|
         t1_v0, t1_p0, t2_v0, t2_p0 = get_replies(t1, t2, day_end, day_begin)
         score1 += (t1_v0 + t1_p0 * 3) * index
+        score2 += (t2_v0 + t2_p0 * 3) * index
         day_begin, day_end = day_begin - 1.day, day_begin
       end
       t1_v6, t1_p6, t2_v6, t2_p6 = get_replies(t1, t2, day_end, day_begin)
@@ -197,10 +198,10 @@ class Topic
 
   def self.diary_popular
     hour_now = Time.now.utc.beginning_of_hour 
-    @topics = Topic.fields_for_list.where(:created_at.gte => (hour_now - 1.days)).includes(:user, :replies, :view_histories)
-    time1, time2 = Time.now.utc, hour_now
+    @topics = Topic.fields_for_list.where(:created_at.gte => (hour_now - 1.day)).includes(:user, :replies, :view_histories)
     @topics = @topics.sort do |t1, t2|
       score1, score2 = 0, 0
+      time1, time2 = Time.now.utc, hour_now
       24.downto(2) do |index|
         t1_v0, t1_p0, t2_v0, t2_p0 = get_replies(t1, t2, time1, time2)
         score1 += (t1_v0 + t1_p0 * 3) * index
@@ -208,8 +209,9 @@ class Topic
         time1, time2 = time2, time2 - 1.hour
       end
       t1_v0, t1_p0, t2_v0, t2_p0 = get_replies(t1, t2, time1, time2)
-      score1 += (t1_v0 + t1_p0) * index
-      score2 += (t2_v0 + t2_p0) * index
+      score1 += (t1_v0 + t1_p0) 
+      score2 += (t2_v0 + t2_p0)
+
       score2 <=> score1
     end
     @topics[0...100]
