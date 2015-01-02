@@ -162,6 +162,7 @@ class Topic
     self.excellent >= 1
   end
 
+  #TODO: 可以添加一个变量存储已经求过 score 的 id 和 score；现在的求值数量为 N(N-1),时间复杂度为 O(N2),检查后可以降为 O(N)
   def self.get_replies(topics1, topics2, time1, time2)
     t1_v0 = topics1.view_histories.where(:created_at.gte => time2).where(:created_at.lt => time1).count
     t2_v0 = topics2.view_histories.where(:created_at.gte => time2).where(:created_at.lt => time1).count
