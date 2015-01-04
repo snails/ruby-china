@@ -12,6 +12,14 @@ class RepliesController < ApplicationController
     if @reply.save
       current_user.read_topic(@topic)
       @msg = t('topics.reply_success')
+      #处理浏览记录
+      current_hour = Time.now.strftime('%Y%m%d%H') #2015010420
+      current_date = Time.now.strftime('%Y%m%d') #20150104
+      rp_hash_hour = Redis::HashKey.new("topics:replies:#{current_hour}", expiration: 24.hours)
+      rp_hash_hour.incr(@topic.id)
+      rp_hash_date = Redis::HashKey.new("topics:replies:#{current_date}", expiration: 7.days)
+      rp_hash_date.incr(@topic.id)
+
     else
       @msg = @reply.errors.full_messages.join('<br />')
     end
@@ -34,6 +42,14 @@ class RepliesController < ApplicationController
   def destroy
     @reply = Reply.find(params[:id])
     if @reply.destroy
+      #处理浏览记录
+      current_hour = Time.now.strftime('%Y%m%d%H') #2015010420
+      current_date = Time.now.strftime('%Y%m%d') #20150104
+      rp_hash_hour = Redis::HashKey.new("topics:replies:#{current_hour}", expiration: 24.hours)
+      rp_hash_hour.decr(@topic.id) if rp_hash_hour[@topic_id]
+      rp_hash_date = Redis::HashKey.new("topics:replies:#{current_date}", expiration: 7.days)
+      rp_hash_date.decr(@topic.id) if rp_hash_date[@topic_id]
+
       redirect_to(topic_path(@reply.topic_id), notice: '回帖删除成功。')
     else
       redirect_to(topic_path(@reply.topic_id), alert: '程序异常，删除失败。')

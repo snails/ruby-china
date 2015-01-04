@@ -82,10 +82,16 @@ class TopicsController < ApplicationController
     @topic = Topic.without_body.find(params[:id])
     @topic.hits.incr(1)
     user_id = current_user.try(:_id) || -1
-    view_history = @topic.view_histories.build(user_id: user_id)
-    view_history.save
     @node = @topic.node
     @show_raw = params[:raw] == '1'
+
+    #处理浏览记录
+    current_hour = Time.now.strftime('%Y%m%d%H') #2015010420
+    current_date = Time.now.strftime('%Y%m%d') #20150104
+    vh_hash_hour = Redis::HashKey.new("topics:vh:#{current_hour}", expiration: 24.hours)
+    vh_hash_hour.incr(@topic.id)
+    vh_hash_date = Redis::HashKey.new("topics:vh:#{current_date}", expiration: 7.days)
+    vh_hash_date.incr(@topic.id)
 
     @per_page = Reply.per_page
     # 默认最后一页
@@ -183,9 +189,30 @@ class TopicsController < ApplicationController
     end
   end
 
+  #如果某个 topic 被删除，则清空对应 topic_id 的所有记录
+  def remove_topic_vhs_and_repies(topic_id)
+    0.upto(23) do |index|
+      current_hour = (Time.now - index.hours).strftime('%Y%m%d%H')
+      current_date = (Time.now - index.days).strftime('%Y%m%d')
+
+      vh_hash_hour = Redis::HashKey.new("topics:vh:#{current_hour}", expiration: 24.hours)
+      vh_hash_hour.delete(topic_id)
+      rp_hash_hour = Redis::HashKey.new("topics:replies:#{current_hour}", expiration: 24.hours)
+      rp_hash_hour.delete(topic_id)
+      #只处理7天的数据
+      if(index < 7)
+        vh_hash_date = Redis::HashKey.new("topics:vh:#{current_date}", expiration: 7.days)
+        vh_hash_date.delete(topic_id)
+        rp_hash_date = Redis::HashKey.new("topics:replies:#{current_date}", expiration: 7.days)
+        rp_hash_date.delete(topic_id)
+      end
+    end
+  end
+
   def destroy
     @topic = Topic.find(params[:id])
-    @topic.destroy_by(current_user)
+    result = @topic.destroy_by(current_user)
+    remove_topic_vhs_and_repies(@topic_id) if result #删除成功后，清除 redis 缓存数据
     redirect_to(topics_path, notice: t('topics.delete_topic_success'))
   end
 
@@ -193,7 +220,7 @@ class TopicsController < ApplicationController
     current_user.favorite_topic(params[:id])
     render text: '1'
   end
-  
+
   def unfavorite
     current_user.unfavorite_topic(params[:id])
     render text: '1'

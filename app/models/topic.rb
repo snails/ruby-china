@@ -45,7 +45,6 @@ class Topic
   belongs_to :last_reply_user, class_name: 'User'
   belongs_to :last_reply, class_name: 'Reply'
   has_many :replies, dependent: :destroy
-  has_many :view_histories, dependent: :destroy
 
   validates_presence_of :user_id, :title, :body, :node
 
@@ -162,99 +161,72 @@ class Topic
     self.excellent >= 1
   end
 
-  #TODO: 可以添加一个变量存储已经求过 score 的 id 和 score；现在的求值数量为 N(N-1),时间复杂度为 O(N2),检查后可以降为 O(N)
-  def self.get_replies(topics1, topics2, time1, time2)
-    t1_v0 = topics1.view_histories.where(:created_at.gte => time2).where(:created_at.lt => time1).count
-    t2_v0 = topics2.view_histories.where(:created_at.gte => time2).where(:created_at.lt => time1).count
+  def self.build_diary_score
+    diary_popular = Redis::SortedSet.new('topics:diary:popular', expiration: 10.minutes)
+    diary_popular.clear
+    0.upto(23) do |index|
+      current_hour = (Time.now - index.hours).strftime('%Y%m%d%H')
+      vh_hash_hour = Redis::HashKey.new("topics:vh:#{current_hour}", expiration: 24.hours)
+      rp_hash_hour = Redis::HashKey.new("topics:replies:#{current_hour}", expiration: 24.hours)
+      topic_ids = vh_hash_hour.keys | rp_hash_hour.keys #union all the topic_id in redis
+      topic_ids.each do |topic_id|
+        score = 0
+        vh = vh_hash_hour[topic_id].to_i || 0
+        rp = rp_hash_hour[topic_id].to_i || 0
+        if index < 23
+          score = (vh + 3 * rp) * (24 - index)
+        else
+          score = (vh + rp)
+        end
+        diary_popular.incr(topic_id, score)
+      end
 
-    t1_p0 = topics1.replies.where(:created_at.gte => time2).where(:created_at.lt => time1).count
-    t2_p0 = topics2.replies.where(:created_at.gte => time2).where(:created_at.lt => time1).count
-
-    [t1_v0, t1_p0, t2_v0, t2_p0]
-  end
-
-  def self.caculate_diary_score(topic)
-    score = 0
-    end_time = Time.now.utc.end_of_hour
-    begin_time = end_time.beginning_of_hour
-
-    24.downto(1) do |index|
-      vh = topic.view_histories.where(:created_at.gte => begin_time).where(:created_at.lt => end_time).count
-      rp = topic.replies.where(:created_at.gte => begin_time).where(:created_at.lt => end_time).count
-      if index > 1
-        score += (vh + 3 * rp) * index
-      else
-        score += (vh + rp)
-      end 
-      begin_time, end_time = begin_time - 1.day, begin_time
     end
 
-    score
+    diary_popular.revrange(0, 99) 
   end
 
-  def self.caculate_week_score(topic)
-    score = 0
-    end_date = Time.now.utc.end_of_day
-    begin_date = end_date.beginning_of_day
-    7.downto(1) do |index|
-      vh = topic.view_histories.where(:created_at.gte => begin_date).where(:created_at.lt => end_date).count
-      rp = topic.replies.where(:created_at.gte => begin_date).where(:created_at.lt => end_date).count
-      if index > 1
-      score += (vh + 3 * rp) * index
-      else
-        score += (vh + rp)
-      end 
-      begin_date, end_date = begin_date - 1.day, begin_date
+  def self.build_week_score
+    week_popular = Redis::SortedSet.new('topics:week:popular', expiration: 24.hours)
+    week_popular.clear
+    0.upto(6) do |index|
+      current_date = (Time.now - index.days).strftime('%Y%m%d')
+      vh_hash_date = Redis::HashKey.new("topics:vh:#{current_date}", expiration: 24.hours)
+      rp_hash_date = Redis::HashKey.new("topics:replies:#{current_date}", expiration: 24.hours)
+      topic_ids = vh_hash_date.keys | rp_hash_date.keys #union all the topic_id in redis
+      topic_ids.each do |topic_id|
+        score = 0
+        vh = vh_hash_date[topic_id].to_i || 0
+        rp = rp_hash_date[topic_id].to_i || 0
+        if index < 6
+          score = (vh + 3 * rp) * (7 - index)
+        else
+          score = (vh + rp)
+        end
+        week_popular.incr(topic_id, score)
+      end
+
     end
-
-    score
+    week_popular.revrange(0, 99)
   end
 
-  #内存中排序
   def self.week_popular
-     @list = Redis::List.new('week_popular', :marshal => true)
-    #首先将链表进行清空
-     @list.clear
-    #其次重建week_list:topic topic:id week_score
-    @begin_date = 6.days.ago.utc.beginning_of_day
-    @topics = Topic.fields_for_list.where(:created_at.gte => @begin_date).includes(:user)
-    @topics.each do |topic|
-      score = caculate_week_score(topic)
-      @list << { topic: topic, score: score }
+    @topics = []
+
+    topic_ids = build_week_score
+    topic_ids.each do |topic_id|
+      @topics << Topic.fields_for_list.includes(:user).find_by_id(topic_id)
     end
-    # 从链表中取出排序后的数据
-    result = @list.sort_by do |x|
-      -x[:score]
-    end[0...100]
-    # 取出所有符合条件的帖子
-    @topics = [] 
-    result.each do |result|
-      @topics << result[:topic]
-    end
+
     @topics
   end
 
   def self.diary_popular
-    @list = Redis::List.new('diary_popular', :marshal => true)
-    #首先将链表进行清空
-     @list.clear
-    #其次重建week_list:topic topic:id week_score
-    begin_time = 1.day.ago.utc.beginning_of_hour
-    @topics = Topic.fields_for_list.where(:created_at.gte => begin_time).includes(:user)
-    @topics.each do |topic|
-      score = caculate_diary_score(topic)
-      @list << { topic: topic, score: score }
-    end
+    @topics = []
 
-    # 从链表中取出排序后的数据
-    result = @list.sort_by do |x|
-      -x[:score]
-    end[0...100]
-
-    # 取出所有符合条件的帖子
-    @topics = [] 
-    result.each do |result|
-      @topics << result[:topic]
+    topic_ids = build_week_score
+    topic_ids.each do |topic_id|
+      @topics << Topic.fields_for_list.includes(:user).find_by_id(topic_id)
     end
 
     @topics
