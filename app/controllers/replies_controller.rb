@@ -17,8 +17,10 @@ class RepliesController < ApplicationController
       current_date = Time.now.strftime('%Y%m%d') #20150104
       rp_hash_hour = Redis::HashKey.new("topics:replies:#{current_hour}", expiration: 24.hours)
       rp_hash_hour.incr(@topic.id)
+      rp_hash_hour.set_expiration
       rp_hash_date = Redis::HashKey.new("topics:replies:#{current_date}", expiration: 7.days)
       rp_hash_date.incr(@topic.id)
+      rp_hash_date.set_expiration
 
     else
       @msg = @reply.errors.full_messages.join('<br />')

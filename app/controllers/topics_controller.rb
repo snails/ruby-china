@@ -3,8 +3,7 @@ require 'will_paginate/array'
 class TopicsController < ApplicationController
   load_and_authorize_resource only: [:new, :edit, :create, :update, :destroy,
                                      :favorite, :unfavorite, :follow, :unfollow, :suggest, :unsuggest]
-  caches_action :feed, :node_feed, :week_popular, expires_in: 1.hours
-  caches_action :diary_popular, expires_in: 10.minutes
+   caches_action :feed, :node_feed, expires_in: 1.hours
 
   def index
     @suggest_topics = Topic.without_hide_nodes.suggest.limit(3)
@@ -90,8 +89,10 @@ class TopicsController < ApplicationController
     current_date = Time.now.strftime('%Y%m%d') #20150104
     vh_hash_hour = Redis::HashKey.new("topics:vh:#{current_hour}", expiration: 24.hours)
     vh_hash_hour.incr(@topic.id)
+    vh_hash_hour.set_expiration
     vh_hash_date = Redis::HashKey.new("topics:vh:#{current_date}", expiration: 7.days)
     vh_hash_date.incr(@topic.id)
+    vh_hash_date.set_expiration
 
     @per_page = Reply.per_page
     # 默认最后一页
@@ -100,18 +101,18 @@ class TopicsController < ApplicationController
 
     @replies = @topic.replies.unscoped.without_body.asc(:_id)
     @replies = @replies.paginate(page: @page, per_page: @per_page)
-    
+
     check_current_user_status_for_topic
     set_special_node_active_menu
-    
+
     set_seo_meta "#{@topic.title} &raquo; #{t("menu.topics")}"
 
     fresh_when(etag: [@topic, @has_followed, @has_favorited, @replies, @node, @show_raw])
   end
-  
+
   def check_current_user_status_for_topic
     return false if not current_user
-    
+
     # 找出用户 like 过的 Reply，给 JS 处理 like 功能的状态
     @user_liked_reply_ids = []
     @replies.each { |r| @user_liked_reply_ids << r.id if r.liked_user_ids.index(current_user.id) != nil }
@@ -122,7 +123,7 @@ class TopicsController < ApplicationController
     # 是否收藏
     @has_favorited = current_user.favorite_topic_ids.index(@topic.id) == nil
   end
-  
+
   def set_special_node_active_menu
     case @node.try(:id)
     when Node.jobs_id
@@ -189,30 +190,10 @@ class TopicsController < ApplicationController
     end
   end
 
-  #如果某个 topic 被删除，则清空对应 topic_id 的所有记录
-  def remove_topic_vhs_and_repies(topic_id)
-    0.upto(23) do |index|
-      current_hour = (Time.now - index.hours).strftime('%Y%m%d%H')
-      current_date = (Time.now - index.days).strftime('%Y%m%d')
-
-      vh_hash_hour = Redis::HashKey.new("topics:vh:#{current_hour}", expiration: 24.hours)
-      vh_hash_hour.delete(topic_id)
-      rp_hash_hour = Redis::HashKey.new("topics:replies:#{current_hour}", expiration: 24.hours)
-      rp_hash_hour.delete(topic_id)
-      #只处理7天的数据
-      if(index < 7)
-        vh_hash_date = Redis::HashKey.new("topics:vh:#{current_date}", expiration: 7.days)
-        vh_hash_date.delete(topic_id)
-        rp_hash_date = Redis::HashKey.new("topics:replies:#{current_date}", expiration: 7.days)
-        rp_hash_date.delete(topic_id)
-      end
-    end
-  end
-
   def destroy
     @topic = Topic.find(params[:id])
-    result = @topic.destroy_by(current_user)
-    remove_topic_vhs_and_repies(@topic_id) if result #删除成功后，清除 redis 缓存数据
+    @topic.destroy_by(current_user)
+    remove_topic_vhs_and_repies(@topic.id) #清除 redis 缓存数据
     redirect_to(topics_path, notice: t('topics.delete_topic_success'))
   end
 
@@ -251,6 +232,32 @@ class TopicsController < ApplicationController
   end
 
   private
+
+  #如果某个 topic 被删除，则清空对应 topic_id 的所有记录
+  def remove_topic_vhs_and_repies(topic_id)
+    0.upto(23) do |index|
+      current_hour = (Time.now - index.hours).strftime('%Y%m%d%H')
+      current_date = (Time.now - index.days).strftime('%Y%m%d')
+
+      vh_hash_hour = Redis::HashKey.new("topics:vh:#{current_hour}", expiration: 24.hours)
+      vh_hash_hour.delete(topic_id)
+      rp_hash_hour = Redis::HashKey.new("topics:replies:#{current_hour}", expiration: 24.hours)
+      rp_hash_hour.delete(topic_id)
+      #只处理7天的数据
+      if(index < 7)
+        vh_hash_date = Redis::HashKey.new("topics:vh:#{current_date}", expiration: 7.days)
+        vh_hash_date.delete(topic_id)
+        rp_hash_date = Redis::HashKey.new("topics:replies:#{current_date}", expiration: 7.days)
+        rp_hash_date.delete(topic_id)
+      end
+    end
+
+    #清空缓存
+    diary_popular = Redis::SortedSet.new('topics:diary:popular', expiration: 10.minutes)
+    diary_popular.delete(topic_id)
+    week_popular = Redis::SortedSet.new('topics:week:popular', expiration: 24.hours)
+    week_popular.delete(topic_id)
+  end
 
   def topic_params
     params.require(:topic).permit(:title, :body, :node_id)

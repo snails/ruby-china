@@ -163,24 +163,26 @@ class Topic
 
   def self.build_diary_score
     diary_popular = Redis::SortedSet.new('topics:diary:popular', expiration: 10.minutes)
-    diary_popular.clear
-    0.upto(23) do |index|
-      current_hour = (Time.now - index.hours).strftime('%Y%m%d%H')
-      vh_hash_hour = Redis::HashKey.new("topics:vh:#{current_hour}", expiration: 24.hours)
-      rp_hash_hour = Redis::HashKey.new("topics:replies:#{current_hour}", expiration: 24.hours)
-      topic_ids = vh_hash_hour.keys | rp_hash_hour.keys #union all the topic_id in redis
-      topic_ids.each do |topic_id|
-        score = 0
-        vh = vh_hash_hour[topic_id].to_i || 0
-        rp = rp_hash_hour[topic_id].to_i || 0
-        if index < 23
-          score = (vh + 3 * rp) * (24 - index)
-        else
-          score = (vh + rp)
+    if diary_popular.size < 1 #过期后再新建
+      0.upto(23) do |index|
+        current_hour = (Time.now - index.hours).strftime('%Y%m%d%H')
+        vh_hash_hour = Redis::HashKey.new("topics:vh:#{current_hour}", expiration: 24.hours)
+        rp_hash_hour = Redis::HashKey.new("topics:replies:#{current_hour}", expiration: 24.hours)
+        topic_ids = vh_hash_hour.keys | rp_hash_hour.keys #union all the topic_id in redis
+        topic_ids.each do |topic_id|
+          score = 0
+          vh = vh_hash_hour[topic_id].to_i || 0
+          rp = rp_hash_hour[topic_id].to_i || 0
+          if index < 23
+            score = (vh + 3 * rp) * (24 - index)
+          else
+            score = (vh + rp)
+          end
+          diary_popular.incr(topic_id, score)
         end
-        diary_popular.incr(topic_id, score)
       end
 
+      diary_popular.set_expiration
     end
 
     diary_popular.revrange(0, 99) 
@@ -188,24 +190,26 @@ class Topic
 
   def self.build_week_score
     week_popular = Redis::SortedSet.new('topics:week:popular', expiration: 24.hours)
-    week_popular.clear
-    0.upto(6) do |index|
-      current_date = (Time.now - index.days).strftime('%Y%m%d')
-      vh_hash_date = Redis::HashKey.new("topics:vh:#{current_date}", expiration: 24.hours)
-      rp_hash_date = Redis::HashKey.new("topics:replies:#{current_date}", expiration: 24.hours)
-      topic_ids = vh_hash_date.keys | rp_hash_date.keys #union all the topic_id in redis
-      topic_ids.each do |topic_id|
-        score = 0
-        vh = vh_hash_date[topic_id].to_i || 0
-        rp = rp_hash_date[topic_id].to_i || 0
-        if index < 6
-          score = (vh + 3 * rp) * (7 - index)
-        else
-          score = (vh + rp)
+    if week_popular.size < 1
+      0.upto(6) do |index|
+        current_date = (Time.now - index.days).strftime('%Y%m%d')
+        vh_hash_date = Redis::HashKey.new("topics:vh:#{current_date}", expiration: 24.hours)
+        rp_hash_date = Redis::HashKey.new("topics:replies:#{current_date}", expiration: 24.hours)
+        topic_ids = vh_hash_date.keys | rp_hash_date.keys #union all the topic_id in redis
+        topic_ids.each do |topic_id|
+          score = 0
+          vh = vh_hash_date[topic_id].to_i || 0
+          rp = rp_hash_date[topic_id].to_i || 0
+          if index < 6
+            score = (vh + 3 * rp) * (7 - index)
+          else
+            score = (vh + rp)
+          end
+          week_popular.incr(topic_id, score)
         end
-        week_popular.incr(topic_id, score)
       end
 
+      week_popular.set_expiration
     end
     week_popular.revrange(0, 99)
   end
@@ -224,7 +228,7 @@ class Topic
   def self.diary_popular
     @topics = []
 
-    topic_ids = build_week_score
+    topic_ids = build_diary_score
     topic_ids.each do |topic_id|
       @topics << Topic.fields_for_list.includes(:user).find_by_id(topic_id)
     end

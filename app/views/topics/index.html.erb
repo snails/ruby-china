@@ -43,7 +43,7 @@
 <% if !mobile? %>
   <div class="sidebar">
     <%= render "topics/sidebar_for_topic_index" if action_name.in?(%w(index)) %>
-    <%= render "topics/sidebar_for_topic_recent" if action_name.in?(%w(recent no_reply popular excellent)) %>
+    <%= render "topics/sidebar_for_topic_recent" if action_name.in?(%w(recent no_reply popular excellent week_popular diary_popular)) %>
     <%= render "topics/sidebar_for_topic_node" if action_name == "node" %>
   </div>
 <% end %>
